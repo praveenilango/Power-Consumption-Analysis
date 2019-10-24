@@ -1,0 +1,165 @@
+---
+title: "ST512_Project"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages("GGally")
+#install.packages("PerformanceAnalytics")
+#install.packages("Rmisc")
+library(readxl)
+library(ggplot2)
+library(GGally)
+library(PerformanceAnalytics)
+library(MASS)
+library(Rmisc)
+library(graphics)
+library(leaps)
+```
+
+
+```{r}
+getwd()
+Data <- read_excel("./workload_input.xls")
+#Data
+
+#Data_big <- data.frame(cbind(Data$CPU_Big_workload,Data$Memory_big_workload,Data$Disk_big_workload,Data$Power_big_workload))
+
+#Extract data for Big workload
+Data_big <- subset.data.frame(Data, select = c("CPU_Big_workload","Memory_big_workload","Disk_big_workload","Power_big_workload"))
+
+#Extract data for small workload
+Data_small <- subset.data.frame(Data, select = c("CPU_Small_workload","Memory_small_workload","Disk_small_workload","Power_small_workload"))
+
+
+#Remove Null Values
+Data_big <- na.omit(Data_big)
+Data_small <- na.omit(Data_small)
+
+#Add indicator variable
+Data_big$Workload <- as.factor("big")
+Data_small$Workload <- as.factor("small")
+
+#Rename Columns
+colnames(Data_big)[1:4] <- c("CPU","Memory","Disk","Power")
+colnames(Data_small)[1:4] <- c("CPU","Memory","Disk","Power")
+
+#Merge Data_big and Data_small
+Data_final <- rbind.data.frame(Data_big,Data_small)
+
+#Box plot to compare power consumption with big and small workload
+ggplot(Data_final, aes(x=Workload, y=Power, colour = Workload)) +
+  geom_boxplot()
+
+
+#Correlation Matrix plot
+ggpairs(Data_small[,c("CPU","Memory","Disk","Power")])
+
+chart.Correlation(Data_final[,c("CPU","Memory","Disk","Power")], histogram=F, pch=19)
+
+#Fit linear model  + Workload*Memory + Workload*CPU + Workload*Disk
+mod <- lm(Power ~ CPU + Memory + Disk + Workload, data = Data_final)
+qplot(x=mod$fitted.values, y=mod$residuals)
+
+#Box cox
+boxcox(mod, seq(0,7,0.1))
+
+# Cube power according to Box Cox plot
+Data_final$Power3 <- (Data_final$Power)^3 
+
+####Log transformation of response variable
+#Data_final$log_power <- log(Data_final$Power)
+
+#Fit linear model for transformed Data
+#mod_trans <- lm(log_power ~ CPU + Memory + Disk + Workload, data = Data_final)
+#qplot(x=mod_trans$fitted.values, y=mod_trans$residuals)
+
+#summary(mod)
+#plot(mod)
+
+###################################
+#Total number of NA in a data frame
+##sum(is.na.data.frame(Data_big))
+
+#Return Rows with NA in them
+##Data_big[!complete.cases(Data_big),]
+##################################
+
+```
+
+```{r}
+#Linear model for Power 3
+mod_p3 <- lm(Power3 ~ CPU + Memory + Disk + Workload, data = Data_final)
+qplot(x=mod_p3$fitted.values, y=mod_p3$residuals) +
+  geom_hline(yintercept = 0, color = "red")
+
+boxcox(mod_p3)
+plot(mod_p3)
+
+summary(mod_p3)
+
+```
+
+
+
+
+```{r}
+#Non transformed model
+Data_final1 <- Data_final
+Data_final1$Sno <- seq(1,nrow(Data_final1))
+Data_final1 <- fortify(mod_p3,Data_final1)
+
+2*4/nrow(Data_final1)
+#Cooks distance
+c <- qplot(Sno, .cooksd, data = Data_final1) + 
+  geom_hline(yintercept = 1, color = "Red") +
+  ggtitle('Cooks distance') +
+  theme_gray()
+#Leverage
+l <- qplot(Sno, .hat, data = Data_final1) +
+  geom_hline(yintercept = 0.02515723, color = "Red") +
+  ggtitle('Leverage') +
+  theme_gray()
+#Studentized Residuals
+s <- qplot(Sno, .stdresid, data = Data_final1) +
+  geom_hline(yintercept = 2, color = "Red") +
+  geom_hline(yintercept = -2, color = "Red") +
+  ggtitle('Studentized Residuals') +
+  theme_gray()
+
+multiplot(c,l,s)
+```
+
+```{r include=FALSE}
+#Remove influential points [137 and 318] (137,318,273,22,23,317)
+Data_final_inf <- Data_final1[-c(137),]
+
+nrow(Data_final_inf)
+mod_inf <- lm(Power ~ CPU + Disk + Memory + Workload + Workload*CPU + Workload*Memory + Workload*Disk, data = Data_final_inf)
+qplot(x=mod_inf$fitted.values, y=mod_inf$residuals)
+plot(mod_inf)
+
+Data_final_inf$Sno <- seq(1,nrow(Data_final_inf))
+Data_final_inf <- fortify(mod_inf,Data_final_inf) 
+
+c <- qplot(Sno, .cooksd, data = Data_final_inf) + 
+  geom_hline(yintercept = 1, color = "Red") +
+  ggtitle('Cooks distance') +
+  theme_gray()
+
+boxcox(mod_inf)
+summary(mod_inf)
+```
+
+
+```{r include = FALSE}
+#fit model without memory
+mod_full <-lm(Power ~ CPU + Memory + Disk + Workload, data = Data_final)
+mod_reduced <- lm(Power ~ CPU + Memory + Disk + Workload, data = Data_final)
+anova(mod_reduced,mod_)
+summary(mod_full)
+confint(mod)
+```
